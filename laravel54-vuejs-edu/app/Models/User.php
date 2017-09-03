@@ -6,8 +6,9 @@ use Bootstrapper\Interfaces\TableInterface;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use SON\Notifications\UserCreated;
+use Tymon\JWTAuth\Contracts\JWTSubject;
 
-class User extends Authenticatable implements TableInterface
+class User extends Authenticatable implements TableInterface, JWTSubject
 {
     use Notifiable;
     const ROLE_ADMIN = 1;
@@ -35,27 +36,30 @@ class User extends Authenticatable implements TableInterface
         'remember_token',
     ];
 
-    public function profile(){
+    public function profile()
+    {
         return $this->hasOne(UserProfile::class)->withDefault();
     }
 
-    public function userable(){
+    public function userable()
+    {
         return $this->morphTo();
     }
 
-    public static function createFully($data){
+    public static function createFully($data)
+    {
         $password = str_random(6);
-        $data['password'] = $password;
+        $data['password'] = bcrypt($password);
         /** @var User $user */
-        $user = parent::create($data+['enrolment' => str_random(6)]);
-        self::assignEnrolment($user,self::ROLE_ADMIN);
-        self::assingRole($user,$data['type']);
+        $user = parent::create($data + ['enrolment' => str_random(6)]);
+        self::assignEnrolment($user, self::ROLE_ADMIN);
+        self::assingRole($user, $data['type']);
         $user->save();
-        if(isset($data['send_mail'])){
+        if (isset($data['send_mail'])) {
             $token = \Password::broker()->createToken($user);
             $user->notify(new UserCreated($token));
         }
-        return compact('user','password');
+        return compact('user', 'password');
     }
 
     public static function assignEnrolment(User $user, $type)
@@ -69,7 +73,8 @@ class User extends Authenticatable implements TableInterface
         return $user->enrolment;
     }
 
-    public static function assingRole(User $user, $type){
+    public static function assingRole(User $user, $type)
+    {
         $types = [
             self::ROLE_ADMIN => Admin::class,
             self::ROLE_TEACHER => Teacher::class,
@@ -107,5 +112,32 @@ class User extends Authenticatable implements TableInterface
             case 'Email':
                 return $this->email;
         }
+    }
+
+    /**
+     * Get the identifier that will be stored in the subject claim of the JWT.
+     *
+     * @return mixed
+     */
+    public function getJWTIdentifier()
+    {
+        return $this->id;
+    }
+
+    /**
+     * Return a key value array, containing any custom claims to be added to the JWT.
+     *
+     * @return array
+     */
+    public function getJWTCustomClaims()
+    {
+        return [
+            'user' => [
+                'id' => $this->id,
+                'name' => $this->name,
+                'email' => $this->email,
+                'role' => $this->userable instanceof Teacher ? self::ROLE_TEACHER : self::ROLE_STUDENT
+            ]
+        ];
     }
 }
